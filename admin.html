@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Images Shuffler - Admin</title>
+    <link rel="stylesheet" href="admin-styles.css">
+</head>
+<body>
+    <div class="admin-container">
+        <header class="compact-header">
+            <h1>🎨 Images Shuffler</h1>
+            <div class="instance-tabs">
+                <button class="tab-button active" data-instance="1">Instance 1</button>
+                <button class="tab-button" data-instance="2">Instance 2</button>
+            </div>
+            <div class="header-actions">
+                <button id="openInstance" class="primary-button compact">Open Display</button>
+                <button id="copyObsUrl" class="secondary-button compact">Copy OBS URL</button>
+                <button id="applySettings" class="primary-button compact">Apply</button>
+            </div>
+        </header>
+        
+        <main class="main-grid">
+            <!-- Left Panel: Core Animation Settings -->
+            <div class="panel left-panel">
+                <div class="panel-header">
+                    <h3>🎬 Animation</h3>
+                </div>
+                
+                <div class="compact-group">
+                    <label for="maxImages">Total Processing</label>
+                    <div class="input-row">
+                        <input type="number" id="maxImages" min="1" max="10" value="3" class="compact-input">
+                        <span class="unit">images</span>
+                    </div>
+                </div>
+                
+                <div class="compact-group">
+                    <label for="speed">Speed</label>
+                    <input type="range" id="speed" min="0.5" max="10" step="0.1" value="2" class="compact-range">
+                    <span class="range-display">2.0</span>
+                </div>
+                
+                <div class="compact-group">
+                    <label for="displayCenter">Display Center</label>
+                    <input type="range" id="displayCenter" min="30" max="70" value="50" class="compact-range">
+                    <span class="range-display">50%</span>
+                </div>
+                
+                <div class="compact-group">
+                    <label for="parkWaitTime">Park Time</label>
+                    <input type="range" id="parkWaitTime" min="500" max="5000" step="100" value="2000" class="compact-range">
+                    <span class="range-display">2000ms</span>
+                </div>
+                
+                <div class="compact-group">
+                    <label for="minParkSpeed">Park Speed</label>
+                    <input type="range" id="minParkSpeed" min="0.01" max="1.0" step="0.01" value="0.1" class="compact-range">
+                    <span class="range-display">0.1</span>
+                </div>
+                
+                <div class="compact-group">
+                    <label for="minSpacing">X Spacing</label>
+                    <input type="range" id="minSpacing" min="100" max="400" value="200" class="compact-range">
+                    <span class="range-display">200px</span>
+                </div>
+                
+                <div class="compact-group">
+                    <label for="speedVariation">Speed Variation</label>
+                    <input type="range" id="speedVariation" min="0" max="50" value="30" class="compact-range">
+                    <span class="range-display">30%</span>
+                </div>
+            </div>
+            
+            <!-- Center Panel: Live Preview -->
+            <div class="panel center-panel">
+                <div class="panel-header">
+                    <h3>🎭 Live Preview</h3>
+                    <div class="preview-stats">
+                        <span id="totalImages">0</span>/<span id="usedImages">0</span> images
+                    </div>
+                </div>
+                
+                <div id="previewContainer" class="preview-container">
+                    <div class="preview-image"></div>
+                    <div id="onTimeZone" class="on-time-indicator">
+                        <div class="zone-label">SLOW ZONE</div>
+                    </div>
+                    <div id="displayCenter" class="display-center-line">
+                        <div class="center-label">CENTER</div>
+                    </div>
+                    <div id="parkArea" class="park-area-indicator">
+                        <div class="park-label">PARK</div>
+                    </div>
+                </div>
+                
+                <div class="preview-controls">
+                    <div class="control-row">
+                        <label for="backgroundColor">Chroma Key</label>
+                        <input type="color" id="backgroundColor" value="#667eea" class="color-input">
+                        <input type="text" id="backgroundColorText" placeholder="#667eea" class="color-text">
+                    </div>
+                    <div class="control-row">
+                        <label for="imagesFolder">Folder</label>
+                        <input type="text" id="imagesFolder" value="images" class="folder-input">
+                        <button id="refreshImages" class="mini-button">↻</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Right Panel: Visual & Advanced Settings -->
+            <div class="panel right-panel">
+                <div class="panel-header">
+                    <h3>🎨 Visual</h3>
+                </div>
+                
+                <div class="compact-group">
+                    <label for="imageScale">Image Size</label>
+                    <input type="range" id="imageScale" min="50" max="400" value="150" class="compact-range">
+                    <span class="range-display">150px</span>
+                </div>
+                
+                <div class="compact-group">
+                    <label for="blurAmount">Edge Blur</label>
+                    <input type="range" id="blurAmount" min="0" max="20" step="0.5" value="5" class="compact-range">
+                    <span class="range-display">5.0px</span>
+                </div>
+                
+                <div class="compact-group checkbox-group">
+                    <label for="frameEnabled">Frame</label>
+                    <input type="checkbox" id="frameEnabled" checked class="compact-checkbox">
+                    <select id="frameStyle" class="frame-select">
+                        <option value="classic">Classic</option>
+                        <option value="neon">Neon Glow</option>
+                        <option value="plasma">Plasma</option>
+                        <option value="cosmic">Cosmic</option>
+                        <option value="fire">Fire Ring</option>
+                        <option value="ice">Ice Crystal</option>
+                        <option value="rainbow">Rainbow</option>
+                        <option value="electric">Electric</option>
+                    </select>
+                </div>
+                
+                <div class="compact-group">
+                    <label for="glowIntensity">Glow Intensity</label>
+                    <input type="range" id="glowIntensity" min="0" max="100" value="50" class="compact-range">
+                    <span class="range-display">50%</span>
+                </div>
+                
+                <div class="compact-group">
+                    <label for="frameWidth">Frame Width</label>
+                    <input type="range" id="frameWidth" min="1" max="20" value="4" class="compact-range">
+                    <span class="range-display">4px</span>
+                </div>
+                
+                <div class="compact-group checkbox-group">
+                    <label for="frameVariation">Random Variants</label>
+                    <input type="checkbox" id="frameVariation" checked class="compact-checkbox">
+                    <span class="unit">eclectic</span>
+                </div>
+                
+                <div class="compact-group checkbox-group">
+                    <label for="frameAnimation">Animation</label>
+                    <input type="checkbox" id="frameAnimation" checked class="compact-checkbox">
+                    <span class="unit">pulse</span>
+                </div>
+                
+                <div class="compact-group">
+                    <label for="effectIntensity">Effect Intensity</label>
+                    <input type="range" id="effectIntensity" min="0" max="200" value="100" class="compact-range">
+                    <span class="range-display">100%</span>
+                </div>
+                
+                <div class="compact-group">
+                    <label for="brandColor1">Brand Color 1</label>
+                    <div class="input-row">
+                        <input type="color" id="brandColor1" value="#667eea" class="color-input">
+                        <input type="text" id="brandColor1Text" placeholder="#667eea" class="color-text">
+                    </div>
+                </div>
+                
+                <div class="compact-group">
+                    <label for="brandColor2">Brand Color 2</label>
+                    <div class="input-row">
+                        <input type="color" id="brandColor2" value="#764ba2" class="color-input">
+                        <input type="text" id="brandColor2Text" placeholder="#764ba2" class="color-text">
+                    </div>
+                </div>
+                
+                <div class="compact-group">
+                    <label for="colorVariation">Color Variation</label>
+                    <input type="range" id="colorVariation" min="0" max="50" value="25" class="compact-range">
+                    <span class="range-display">25%</span>
+                </div>
+                
+                <div class="divider"></div>
+                
+                <div class="compact-group">
+                    <label for="easingStrength">Easing</label>
+                    <input type="range" id="easingStrength" min="1.0" max="4.0" step="0.1" value="2.0" class="compact-range">
+                    <span class="range-display">2.0</span>
+                </div>
+                
+                <div class="compact-group">
+                    <label for="onTimeVariation">Variation</label>
+                    <input type="range" id="onTimeVariation" min="0" max="30" value="15" class="compact-range">
+                    <span class="range-display">±15%</span>
+                </div>
+                
+                <div class="compact-group">
+                    <label for="parkAreaHeight">Park Height</label>
+                    <input type="range" id="parkAreaHeight" min="50" max="200" value="100" class="compact-range">
+                    <span class="range-display">100px</span>
+                </div>
+                
+                <div class="compact-group">
+                    <label for="bottomOffset">Bottom Gap</label>
+                    <input type="range" id="bottomOffset" min="0" max="200" value="100" class="compact-range">
+                    <span class="range-display">100px</span>
+                </div>
+                
+                <div class="compact-group">
+                    <label for="topOffset">Top Gap</label>
+                    <input type="range" id="topOffset" min="0" max="200" value="100" class="compact-range">
+                    <span class="range-display">100px</span>
+                </div>
+                
+                <div class="compact-group">
+                    <label for="parkZoneOffset">Park Zone Shift</label>
+                    <input type="range" id="parkZoneOffset" min="-200" max="200" value="0" class="compact-range">
+                    <span class="range-display">0px</span>
+                </div>
+                
+                <!-- Hidden elements for compatibility -->
+                <div style="display: none;">
+                    <input type="range" id="centerZoneStart" min="5" max="50" value="20">
+                    <input type="range" id="centerZoneEnd" min="50" max="95" value="80">
+                </div>
+            </div>
+        </main>
+        
+        <!-- Bottom Actions Bar -->
+        <footer class="actions-bar">
+            <div class="action-group">
+                <select id="presetSelect" class="preset-select">
+                    <option value="">Select Preset</option>
+                    <option value="default">Default</option>
+                    <option value="fast">Fast & Energetic</option>
+                    <option value="slow">Slow & Peaceful</option>
+                    <option value="showcase">Gallery Showcase</option>
+                </select>
+                <button id="savePreset" class="action-button">💾 Save Preset</button>
+                <button id="resetUsedImages" class="action-button">🔄 Reset Queue</button>
+            </div>
+            
+            <div class="status-display">
+                <span id="zoneInfo">Park System Active</span>
+                <span id="spacingInfo">Spacing: 200px</span>
+                <span id="remainingImages">Remaining: 0</span>
+            </div>
+            
+            <div class="action-group">
+                <button id="exportSettings" class="action-button">📤 Export</button>
+                <input type="file" id="importSettings" accept=".json" style="display: none;">
+                <button id="importSettingsButton" class="action-button">📥 Import</button>
+            </div>
+        </footer>
+    </div>
+    
+    <script src="admin-script.js"></script>
+</body>
+</html>

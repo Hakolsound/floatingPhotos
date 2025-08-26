@@ -1,0 +1,26 @@
+{
+  "name": "images-shuffler",
+  "version": "1.0.0",
+  "description": "A local web application for displaying images with animated effects",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "images",
+    "animation",
+    "web",
+    "local",
+    "slideshow"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "sharp": "^0.34.3"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
