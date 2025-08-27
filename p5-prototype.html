@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Floating Photos - p5.js Prototype</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            overflow: hidden;
+        }
+        
+        #controls {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            z-index: 1000;
+        }
+        
+        .control-group {
+            margin-bottom: 10px;
+        }
+        
+        label {
+            display: inline-block;
+            width: 80px;
+            font-size: 11px;
+        }
+        
+        input[type="range"] {
+            width: 100px;
+        }
+        
+        #stats {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 11px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div id="stats">
+        <div>FPS: <span id="fps">0</span></div>
+        <div>Images: <span id="imageCount">0</span></div>
+        <div>Active: <span id="activeCount">0</span></div>
+    </div>
+    
+    <div id="controls">
+        <div class="control-group">
+            <label>Speed:</label>
+            <input type="range" id="speedSlider" min="0.5" max="5" step="0.1" value="2">
+            <span id="speedValue">2.0</span>
+        </div>
+        <div class="control-group">
+            <label>Max Images:</label>
+            <input type="range" id="maxImagesSlider" min="1" max="10" value="3">
+            <span id="maxImagesValue">3</span>
+        </div>
+        <div class="control-group">
+            <label>Size:</label>
+            <input type="range" id="sizeSlider" min="50" max="300" value="150">
+            <span id="sizeValue">150</span>
+        </div>
+        <div class="control-group">
+            <label>Park Wait:</label>
+            <input type="range" id="parkWaitSlider" min="500" max="5000" step="100" value="2000">
+            <span id="parkWaitValue">2000ms</span>
+        </div>
+        <div class="control-group">
+            <label>Spacing:</label>
+            <input type="range" id="spacingSlider" min="100" max="400" value="200">
+            <span id="spacingValue">200px</span>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let images = [];
+        let activeImages = [];
+        let imagePool = [];
+        let availableImages = [];
+        let usedImages = new Set();
+        let settings = {
+            speed: 2.0,
+            maxImages: 3,
+            imageSize: 150,
+            parkWait: 2000,
+            spacing: 200,
+            displayCenter: 0.5,
+            parkHeight: 100,
+            minParkSpeed: 0.1,
+            blurAmount: 5
+        };
+        
+        // Performance tracking
+        let frameHistory = [];
+        let lastSpawnTime = 0;
+        let spawnInterval = 3000;
+        
+        // Will be populated from server
+        let demoImages = [];
+        
+        class FloatingImage {
+            constructor(x, y, imgSrc) {
+                this.x = x;
+                this.y = y;
+                this.startY = height + 100;
+                this.endY = -settings.imageSize - 50;
+                this.speed = settings.speed * (0.7 + Math.random() * 0.6); // Speed variation
+                
+                this.size = settings.imageSize;
+                this.img = null;
+                this.loaded = false;
+                
+                // Park and wait system
+                this.phase = 'approach'; // approach, park, wait, exit
+                this.parkCenterY = height * settings.displayCenter;
+                this.individualParkY = this.parkCenterY + (Math.random() - 0.5) * 60; // Individual park position
+                this.waitStartTime = 0;
+                this.waitDuration = settings.parkWait + (Math.random() - 0.5) * 1000;
+                
+                // Visual effects
+                this.opacity = 0;
+                this.fadeIn = true;
+                
+                // Load image
+                if (imgSrc) {
+                    this.img = loadImage(imgSrc, () => {
+                        this.loaded = true;
+                        console.log('Image loaded successfully:', imgSrc);
+                    }, () => {
+                        console.error('Failed to load image:', imgSrc);
+                    });
+                }
+                
+                // Start from bottom
+                this.y = this.startY;
+            }
+            
+            update() {
+                if (this.phase === 'approach') {
+                    // Fast approach to park zone
+                    let distanceToPark = this.y - this.individualParkY;
+                    if (distanceToPark > settings.parkHeight) {
+                        // Normal speed
+                        this.y -= this.speed;
+                    } else {
+                        // Entering park zone - slow down
+                        let slowFactor = Math.max(settings.minParkSpeed, distanceToPark / settings.parkHeight);
+                        this.y -= this.speed * slowFactor;
+                        
+                        // Check if reached park center
+                        if (this.y <= this.individualParkY) {
+                            this.phase = 'wait';
+                            this.waitStartTime = millis();
+                            this.y = this.individualParkY; // Lock position
+                        }
+                    }
+                } else if (this.phase === 'wait') {
+                    // Wait at park position
+                    if (millis() - this.waitStartTime > this.waitDuration) {
+                        this.phase = 'exit';
+                    }
+                } else if (this.phase === 'exit') {
+                    // Accelerate out
+                    this.y -= this.speed * 1.5;
+                }
+                
+                // Fade in/out
+                if (this.fadeIn && this.opacity < 1) {
+                    this.opacity += 0.02;
+                    if (this.opacity >= 1) this.fadeIn = false;
+                }
+                
+                // Check if off screen
+                if (this.y < this.endY) {
+                    return false; // Mark for removal
+                }
+                
+                return true; // Keep alive
+            }
+            
+            display() {
+                if (!this.loaded || !this.img) return;
+                
+                push();
+                
+                // Apply transformations
+                translate(this.x, this.y);
+                
+                // Create circular mask
+                let maskGraphics = createGraphics(this.size, this.size);
+                maskGraphics.fill(255);
+                maskGraphics.noStroke();
+                maskGraphics.ellipse(this.size/2, this.size/2, this.size);
+                
+                // Create image graphics
+                let imgGraphics = createGraphics(this.size, this.size);
+                imgGraphics.imageMode(CENTER);
+                imgGraphics.image(this.img, this.size/2, this.size/2, this.size, this.size);
+                
+                // Apply mask
+                imgGraphics.loadPixels();
+                maskGraphics.loadPixels();
+                for (let i = 0; i < imgGraphics.pixels.length; i += 4) {
+                    imgGraphics.pixels[i + 3] = maskGraphics.pixels[i]; // Apply alpha
+                }
+                imgGraphics.updatePixels();
+                
+                // Draw with opacity
+                tint(255, this.opacity * 255);
+                image(imgGraphics, -this.size/2, -this.size/2);
+                noTint();
+                
+                // Draw frame effect
+                this.drawFrame();
+                
+                pop();
+            }
+            
+            drawFrame() {
+                push();
+                
+                // Glowing frame
+                stroke(255, 255, 255, this.opacity * 150);
+                strokeWeight(3);
+                noFill();
+                
+                // Add subtle glow
+                for (let r = this.size/2; r < this.size/2 + 10; r += 2) {
+                    stroke(255, 255, 255, this.opacity * (50 - (r - this.size/2) * 5));
+                    strokeWeight(1);
+                    ellipse(0, 0, r * 2);
+                }
+                
+                pop();
+            }
+        }
+        
+        function setup() {
+            createCanvas(windowWidth, windowHeight);
+            
+            // Load images from server
+            loadImagesFromServer();
+            
+            // Setup controls
+            setupControls();
+        }
+        
+        async function loadImagesFromServer() {
+            try {
+                // Get images from server API (default to 'images' folder)
+                const response = await fetch('/api/images/images');
+                const imageFiles = await response.json();
+                
+                // Convert to full URLs
+                demoImages = imageFiles.map(filename => `/api/images/images/${filename}`);
+                availableImages = [...demoImages];
+                
+                console.log(`Loaded ${demoImages.length} images from server`);
+                
+                // Start spawning images after loading
+                if (demoImages.length > 0) {
+                    setTimeout(spawnImage, 1000);
+                }
+            } catch (error) {
+                console.error('Failed to load images from server:', error);
+                // Fallback to demo images
+                demoImages = [
+                    'https://picsum.photos/300/400?random=1',
+                    'https://picsum.photos/300/400?random=2',
+                    'https://picsum.photos/300/400?random=3'
+                ];
+                availableImages = [...demoImages];
+                setTimeout(spawnImage, 1000);
+            }
+        }
+        
+        function draw() {
+            // Clear with gradient background
+            background(102, 126, 234); // Base color, p5.js doesn't support CSS gradients easily
+            
+            // Show loading message if no images loaded yet
+            if (demoImages.length === 0) {
+                fill(255);
+                textAlign(CENTER);
+                textSize(24);
+                text('Loading images...', width/2, height/2);
+                return;
+            }
+            
+            // Update all images
+            for (let i = activeImages.length - 1; i >= 0; i--) {
+                let img = activeImages[i];
+                if (!img.update()) {
+                    // Remove image
+                    activeImages.splice(i, 1);
+                }
+            }
+            
+            // Display all images
+            for (let img of activeImages) {
+                img.display();
+            }
+            
+            // Spawn new images
+            if (millis() - lastSpawnTime > spawnInterval && activeImages.length < settings.maxImages) {
+                spawnImage();
+            }
+            
+            // Update stats
+            updateStats();
+        }
+        
+        function spawnImage() {
+            if (availableImages.length === 0) {
+                // Reset pool
+                availableImages = [...demoImages];
+                usedImages.clear();
+            }
+            
+            // Pick random unused image
+            let availablePool = availableImages.filter(img => !usedImages.has(img));
+            if (availablePool.length === 0) availablePool = availableImages;
+            
+            let randomImg = random(availablePool);
+            usedImages.add(randomImg);
+            
+            // Find non-colliding X position
+            let x = findNonCollidingX();
+            
+            // Create new image
+            let newImage = new FloatingImage(x, height + 100, randomImg);
+            activeImages.push(newImage);
+            
+            lastSpawnTime = millis();
+            
+            // Adjust spawn interval based on settings
+            spawnInterval = 3000 / settings.speed;
+        }
+        
+        function findNonCollidingX() {
+            let attempts = 20;
+            let spacing = settings.spacing;
+            
+            for (let i = 0; i < attempts; i++) {
+                let x = random(settings.imageSize/2, width - settings.imageSize/2);
+                let collision = false;
+                
+                for (let img of activeImages) {
+                    if (abs(img.x - x) < spacing) {
+                        collision = true;
+                        break;
+                    }
+                }
+                
+                if (!collision) return x;
+            }
+            
+            // Fallback to random position
+            return random(settings.imageSize/2, width - settings.imageSize/2);
+        }
+        
+        function setupControls() {
+            // Speed control
+            let speedSlider = document.getElementById('speedSlider');
+            speedSlider.addEventListener('input', (e) => {
+                settings.speed = parseFloat(e.target.value);
+                document.getElementById('speedValue').textContent = settings.speed.toFixed(1);
+            });
+            
+            // Max images control
+            let maxImagesSlider = document.getElementById('maxImagesSlider');
+            maxImagesSlider.addEventListener('input', (e) => {
+                settings.maxImages = parseInt(e.target.value);
+                document.getElementById('maxImagesValue').textContent = settings.maxImages;
+            });
+            
+            // Size control
+            let sizeSlider = document.getElementById('sizeSlider');
+            sizeSlider.addEventListener('input', (e) => {
+                settings.imageSize = parseInt(e.target.value);
+                document.getElementById('sizeValue').textContent = settings.imageSize;
+            });
+            
+            // Park wait control
+            let parkWaitSlider = document.getElementById('parkWaitSlider');
+            parkWaitSlider.addEventListener('input', (e) => {
+                settings.parkWait = parseInt(e.target.value);
+                document.getElementById('parkWaitValue').textContent = settings.parkWait + 'ms';
+            });
+            
+            // Spacing control
+            let spacingSlider = document.getElementById('spacingSlider');
+            spacingSlider.addEventListener('input', (e) => {
+                settings.spacing = parseInt(e.target.value);
+                document.getElementById('spacingValue').textContent = settings.spacing + 'px';
+            });
+        }
+        
+        function updateStats() {
+            // Track FPS
+            frameHistory.push(millis());
+            if (frameHistory.length > 60) frameHistory.shift();
+            
+            if (frameHistory.length > 10) {
+                let fps = 1000 / ((frameHistory[frameHistory.length - 1] - frameHistory[0]) / frameHistory.length);
+                document.getElementById('fps').textContent = fps.toFixed(1);
+            }
+            
+            document.getElementById('imageCount').textContent = availableImages.length;
+            document.getElementById('activeCount').textContent = activeImages.length;
+        }
+        
+        function windowResized() {
+            resizeCanvas(windowWidth, windowHeight);
+        }
+    </script>
+</body>
+</html>

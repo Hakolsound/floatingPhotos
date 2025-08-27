@@ -1,0 +1,1086 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Floating Photos - p5.js</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+        }
+        
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <script>
+        // Global variables
+        let images = [];
+        let activeImages = [];
+        let availableImages = [];
+        let usedImages = new Set();
+        let settings = {};
+        let instanceId = '1';
+        
+        // Performance tracking
+        let lastFrameTime = 0;
+        let frameCount60 = 0;
+        let lastSpawnTime = 0;
+        
+        // Visual effects
+        let backgroundGradient;
+        let frameEffects = {};
+        
+        class FloatingImage {
+            constructor(x, imagePath) {
+                console.log(`🎨 [FRAME=${frameCount || 0}] CONSTRUCTOR: Creating ${imagePath} at x=${x}`);
+                this.imagePath = imagePath;
+                this.x = x;
+                this.originalX = x; // Store original X for collision detection
+                
+                // Get window dimensions
+                this.windowWidth = window.innerWidth;
+                this.windowHeight = window.innerHeight;
+                
+                // Visual properties - calculate size variation first
+                this.opacity = 0;
+                this.fadeInComplete = false;
+                
+                // Apply size variation - each image gets a slight scale variation
+                const sizeVariationFactor = 1 + (Math.random() - 0.5) * 2 * (settings.sizeVariation / 100);
+                this.size = settings.imageScale * sizeVariationFactor;
+                this.originalSize = settings.imageScale; // Keep reference to base size
+                
+                this.rotation = 0;
+                this.glowPhase = Math.random() * TWO_PI;
+                
+                // Calculate positions using varied size
+                this.startY = this.windowHeight + settings.bottomOffset;
+                this.circleRadius = this.size / 2; // Use varied size for radius calculation
+                this.safetyMargin = this.circleRadius * 0.5; // Increased safety margin
+                this.endY = -(this.circleRadius + this.safetyMargin + settings.topOffset + 100); // More generous removal point
+                
+                // Physics properties for realistic acceleration
+                this.baseSpeed = settings.speed * (0.7 + Math.random() * 0.6); // Speed variation ±30%
+                this.individualSpeed = this.baseSpeed * (1 + (Math.random() - 0.5) * (settings.speedVariation / 100));
+                this.currentVelocity = this.individualSpeed; // Current velocity (can accelerate/decelerate)
+                this.acceleration = 0; // Current acceleration
+                this.maxAcceleration = this.individualSpeed * 0.15; // Max acceleration per frame
+                this.friction = 0.98; // Friction/air resistance factor
+                this.momentum = 0; // Physics momentum
+                
+                // Park and wait system
+                this.phase = 'approach';
+                console.log(`📍 [FRAME=${frameCount || 0}] INIT PHASE: ${imagePath} phase=${this.phase}`);
+                this.displayCenter = this.windowHeight * (settings.displayCenter / 100);
+                this.parkZoneTop = this.displayCenter - (settings.parkAreaHeight / 2) + settings.parkZoneOffset;
+                this.parkZoneBottom = this.displayCenter + (settings.parkAreaHeight / 2) + settings.parkZoneOffset;
+                this.individualCenterY = this.displayCenter + (Math.random() - 0.5) * (settings.onTimeVariation * 2);
+                this.waitStartTime = 0;
+                // Use normal wait time like original
+                this.waitDuration = Math.max(1000, settings.parkWaitTime + (Math.random() - 0.5) * 500);
+                console.log(`Image ${this.imagePath} created with waitDuration: ${this.waitDuration}ms`);
+                
+                // Image loading
+                this.img = null;
+                this.loaded = false;
+                this.loadFailed = false;
+                
+                // Frame style - always use admin selection, ignore frameVariation for now
+                this.frameStyle = settings.frameStyle;
+                this.frameColors = this.generateFrameColors();
+                
+                // Start position
+                this.y = this.startY;
+                // console.log(`Image created: ${this.imagePath}, startY: ${this.startY}, windowHeight: ${this.windowHeight}`);
+                
+                // Load image
+                this.loadImage();
+            }
+            
+            loadImage() {
+                const fullPath = `${window.location.origin}/api/images/${settings.imagesFolder}/${this.imagePath}`;
+                // console.log('Loading image:', fullPath);
+                this.img = loadImage(fullPath, 
+                    () => {
+                        this.loaded = true;
+                        // console.log('Image loaded successfully:', this.imagePath);
+                    },
+                    () => {
+                        this.loadFailed = true;
+                        console.warn('Failed to load:', fullPath);
+                    }
+                );
+            }
+            
+            getRandomFrameStyle() {
+                const styles = ['classic', 'neon', 'plasma', 'cosmic', 'fire', 'ice', 'rainbow', 'electric'];
+                return random(styles);
+            }
+            
+            generateFrameColors() {
+                // Convert brand colors from hex to RGB
+                const color1 = this.hexToRgb(settings.brandColor1);
+                const color2 = this.hexToRgb(settings.brandColor2);
+                
+                // Apply color variation
+                const variation = settings.colorVariation / 100;
+                const vary = () => Math.random() * variation * 2 - variation;
+                
+                return {
+                    primary: {
+                        r: constrain(color1.r * (1 + vary()), 0, 255),
+                        g: constrain(color1.g * (1 + vary()), 0, 255),
+                        b: constrain(color1.b * (1 + vary()), 0, 255)
+                    },
+                    secondary: {
+                        r: constrain(color2.r * (1 + vary()), 0, 255),
+                        g: constrain(color2.g * (1 + vary()), 0, 255),
+                        b: constrain(color2.b * (1 + vary()), 0, 255)
+                    }
+                };
+            }
+            
+            hexToRgb(hex) {
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? {
+                    r: parseInt(result[1], 16),
+                    g: parseInt(result[2], 16),
+                    b: parseInt(result[3], 16)
+                } : {r: 255, g: 255, b: 255};
+            }
+            
+            update() {
+                // Calculate total journey distance and current progress (keep original logic)
+                const totalDistance = this.startY - this.endY;
+                const currentProgress = (this.startY - this.y) / totalDistance;
+                const parkCenterProgress = (this.startY - this.individualCenterY) / totalDistance;
+                
+                // Use original progress-based zones (preserve admin timing)
+                const parkZoneRadius = 0.08; // 8% of total journey around park center
+                const approachZoneSize = 0.12; // 12% approach zone for gradual deceleration
+                const distanceFromParkCenter = Math.abs(currentProgress - parkCenterProgress);
+                
+                let targetSpeed = this.individualSpeed; // Keep original speed-based approach
+                
+                // Enhanced movement with dramatic acceleration effects
+                if (this.phase === 'approach') {
+                    if (currentProgress < parkCenterProgress - approachZoneSize) {
+                        // Far from park - 4.5X STARTING SPEED for balanced dramatic approach
+                        targetSpeed = this.individualSpeed * 4.5;
+                        this.currentVelocity = targetSpeed;
+                        
+                        // High speed approach - debug removed
+                        
+                    } else if (currentProgress < parkCenterProgress - parkZoneRadius) {
+                        // Approaching park - FAST NEGATIVE ACCELERATION (dramatic braking)
+                        const approachProgress = (currentProgress - (parkCenterProgress - approachZoneSize)) / (approachZoneSize - parkZoneRadius);
+                        const easingFactor = Math.pow(1 - approachProgress, 0.5); // Keep original easing
+                        
+                        targetSpeed = this.individualSpeed * Math.max(settings.minParkSpeed, 0.3 + (easingFactor * 0.7));
+                        
+                        // Add dramatic negative acceleration effect
+                        const brakingIntensity = Math.pow(approachProgress, 2); // Quadratic braking
+                        const brakingEffect = -this.individualSpeed * brakingIntensity * 0.8; // Strong braking
+                        
+                        this.currentVelocity = targetSpeed + brakingEffect;
+                        this.currentVelocity = Math.max(settings.minParkSpeed * this.individualSpeed, this.currentVelocity);
+                        
+                        // Fast braking - debug removed
+                        
+                    } else if (distanceFromParkCenter <= parkZoneRadius && !this.hasWaited) {
+                        // Entering park zone - switch to park phase (original logic)
+                        this.phase = 'park';
+                        this.waitStartTime = millis();
+                        targetSpeed = this.individualSpeed * settings.minParkSpeed;
+                        this.currentVelocity = targetSpeed;
+                    } else {
+                        // Fallback - normal speed
+                        targetSpeed = this.individualSpeed;
+                        this.currentVelocity = targetSpeed;
+                    }
+                    
+                } else if (this.phase === 'park') {
+                    // In park zone - slow and wait (keep original timing)
+                    const currentTime = millis();
+                    
+                    if (!this.waitStartTime || this.waitStartTime <= 0 || this.waitStartTime > currentTime) {
+                        this.waitStartTime = currentTime;
+                    }
+                    
+                    const timeInPark = currentTime - this.waitStartTime;
+                    
+                    if (timeInPark >= this.waitDuration) {
+                        this.hasWaited = true;
+                        this.phase = 'exit';
+                    }
+                    
+                    targetSpeed = this.individualSpeed * settings.minParkSpeed;
+                    this.currentVelocity = targetSpeed; // Keep steady in park
+                    
+                } else if (this.phase === 'exit') {
+                    // Exiting park - DOUBLED HEAVY ACCELERATION (extreme speed boost)
+                    const exitProgress = Math.max(0, currentProgress - parkCenterProgress);
+                    const accelFactor = 1.2 + Math.min(2.0, exitProgress * 8); // Keep original acceleration curve
+                    
+                    targetSpeed = this.individualSpeed * accelFactor;
+                    
+                    // QUADRUPLE the acceleration effects (doubled again)
+                    const accelerationBoost = exitProgress * this.individualSpeed * 6.0; // Doubled from 3.0 to 6.0
+                    const turboBurst = Math.min(1, exitProgress * 5) * this.individualSpeed * 3.2; // Doubled from 1.6 to 3.2
+                    
+                    this.currentVelocity = targetSpeed + accelerationBoost + turboBurst;
+                    this.currentVelocity = Math.min(this.individualSpeed * 16, this.currentVelocity); // Increased cap from 8x to 16x speed
+                    
+                    // Quadruple acceleration - debug removed
+                }
+                
+                // Initialize hasWaited flag if not set
+                if (this.hasWaited === undefined) {
+                    this.hasWaited = false;
+                }
+                
+                // Apply movement using enhanced velocity
+                this.y -= this.currentVelocity;
+                
+                // Fade in effect
+                if (!this.fadeInComplete) {
+                    this.opacity += 0.02;
+                    if (this.opacity >= 1) {
+                        this.opacity = 1;
+                        this.fadeInComplete = true;
+                    }
+                }
+                
+                // Rotation for frame effects
+                if (settings.frameAnimation) {
+                    this.rotation += 0.01;
+                    this.glowPhase += 0.03;
+                }
+                
+                // Check if completely off screen (including safety margin)
+                const completelyOffScreen = this.y < this.endY;
+                
+                // EXTENSIVE REMOVAL LOGGING - every frame for exit phase
+                if (this.phase === 'exit') {
+                    console.log(`🗑️ REMOVAL CHECK [${millis().toFixed(0)}ms]: ${this.imagePath} y=${this.y.toFixed(1)} < endY=${this.endY.toFixed(1)} = ${this.y < this.endY} → willRemove=${completelyOffScreen} frame=${frameCount}`);
+                }
+                
+                return !completelyOffScreen; // Return false to remove
+            }
+            
+            display() {
+                push();
+                translate(this.x, this.y);
+                
+                if (!this.loaded || this.loadFailed) {
+                    // Show placeholder
+                    this.drawPlaceholder();
+                    pop();
+                    return;
+                }
+                
+                if (settings.frameAnimation) {
+                    // Only rotate the frame effects, not the entire image
+                    // rotate(this.rotation * 0.1); // Disabled - don't rotate images
+                }
+                
+                // Remove debug logging
+                
+                // Draw frame effects first (behind image)
+                if (settings.frameEnabled) {
+                    this.drawFrame();
+                } else {
+                    // Debug: Draw simple frame if frames are disabled
+                    stroke(255, 150);
+                    strokeWeight(3);
+                    noFill();
+                    ellipse(0, 0, this.size + 4);
+                }
+                
+                // Draw image with circular mask (over frame)
+                this.drawMaskedImage();
+                
+                pop();
+            }
+            
+            drawMaskedImage() {
+                push();
+                
+                // Simple clipping approach that works
+                drawingContext.save();
+                
+                // Create circular clip
+                drawingContext.beginPath();
+                drawingContext.arc(0, 0, this.size / 2, 0, TWO_PI);
+                drawingContext.clip();
+                
+                // Calculate aspect ratio and scale to fill circle (crop if needed)
+                const imgAspect = this.img.width / this.img.height;
+                let drawWidth, drawHeight;
+                
+                if (imgAspect > 1) {
+                    // Wide image - scale to fill height, crop width
+                    drawHeight = this.size;
+                    drawWidth = this.size * imgAspect;
+                } else {
+                    // Tall image - scale to fill width, crop height  
+                    drawWidth = this.size;
+                    drawHeight = this.size / imgAspect;
+                }
+                
+                // Draw image with opacity
+                tint(255, this.opacity * 255);
+                imageMode(CENTER);
+                image(this.img, 0, 0, drawWidth, drawHeight);
+                noTint();
+                
+                drawingContext.restore();
+                pop();
+            }
+            
+            drawPlaceholder() {
+                // Draw placeholder circle (already translated)
+                fill(200, this.opacity * 255);
+                noStroke();
+                ellipse(0, 0, this.size);
+                
+                // Draw text
+                fill(100, this.opacity * 255);
+                textAlign(CENTER, CENTER);
+                textSize(12);
+                text('IMG', 0, 0);
+            }
+            
+            drawFrame() {
+                const intensity = Math.max(0.3, (settings.effectIntensity / 100)); // Ensure minimum visibility
+                const glowIntensity = settings.glowIntensity / 100;
+                const frameWidth = Math.max(2, settings.frameWidth); // Ensure minimum width
+                const colors = this.frameColors;
+                
+                // Frame drawing - debug removed
+                
+                push();
+                
+                switch (this.frameStyle) {
+                    case 'classic':
+                        this.drawClassicFrame(colors, frameWidth, intensity);
+                        break;
+                    case 'neon':
+                        this.drawNeonFrame(colors, frameWidth, intensity);
+                        break;
+                    case 'plasma':
+                        this.drawPlasmaFrame(colors, frameWidth, intensity);
+                        break;
+                    case 'cosmic':
+                        this.drawCosmicFrame(colors, frameWidth, intensity);
+                        break;
+                    case 'fire':
+                        this.drawFireFrame(colors, frameWidth, intensity);
+                        break;
+                    case 'ice':
+                        this.drawIceFrame(colors, frameWidth, intensity);
+                        break;
+                    case 'rainbow':
+                        this.drawRainbowFrame(colors, frameWidth, intensity);
+                        break;
+                    case 'electric':
+                        this.drawElectricFrame(colors, frameWidth, intensity);
+                        break;
+                }
+                
+                pop();
+            }
+            
+            drawClassicFrame(colors, frameWidth, intensity) {
+                const baseAlpha = Math.min(255, this.opacity * intensity * 200 + 55); // Ensure visibility
+                const glowIntensity = settings.glowIntensity / 100;
+                
+                // Draw main frame ring
+                stroke(colors.primary.r, colors.primary.g, colors.primary.b, baseAlpha);
+                strokeWeight(frameWidth);
+                noFill();
+                ellipse(0, 0, this.size + frameWidth);
+                
+                // Draw glow layers if enabled
+                if (glowIntensity > 0.1) {
+                    const glowLayers = Math.max(1, Math.ceil(settings.glowIntensity / 25));
+                    
+                    for (let i = 0; i < glowLayers; i++) {
+                        const layerAlpha = (baseAlpha * glowIntensity * (1 - (i * 0.4))) * 0.6;
+                        const layerWidth = frameWidth * 0.8 + (i * 1.5);
+                        
+                        stroke(colors.primary.r, colors.primary.g, colors.primary.b, Math.max(20, layerAlpha));
+                        strokeWeight(layerWidth);
+                        ellipse(0, 0, this.size + frameWidth + (i * 3));
+                    }
+                }
+            }
+            
+            drawNeonFrame(colors, frameWidth, intensity) {
+                const baseAlpha = this.opacity * intensity * 180 + 75; // Brighter base
+                
+                // Animated glow intensity
+                const animatedGlow = settings.frameAnimation ? 
+                    (sin(this.glowPhase) * 0.4 + 0.8) : 1;
+                
+                // Main neon ring
+                stroke(colors.primary.r, colors.primary.g, colors.primary.b, baseAlpha * animatedGlow);
+                strokeWeight(frameWidth);
+                noFill();
+                ellipse(0, 0, this.size + frameWidth);
+                
+                // Multiple glow layers for neon effect
+                for (let i = 0; i < 4; i++) {
+                    const layerAlpha = (baseAlpha * (85 - i * 15)) / 100;
+                    const weight = frameWidth * 0.7 + i * 2;
+                    const layerGlow = settings.frameAnimation ? 
+                        (sin(this.glowPhase + i * 0.5) * 0.3 + 0.7) : 1;
+                    
+                    stroke(colors.primary.r, colors.primary.g, colors.primary.b, 
+                           Math.max(25, layerAlpha * layerGlow * animatedGlow));
+                    strokeWeight(weight);
+                    ellipse(0, 0, this.size + frameWidth + (i * 4));
+                }
+            }
+            
+            drawPlasmaFrame(colors, frameWidth, intensity) {
+                // Animated plasma effect
+                const steps = 32;
+                noFill();
+                for (let i = 0; i < steps; i++) {
+                    const angle = (i / steps) * TWO_PI;
+                    const offset = sin(this.glowPhase + angle * 3) * 5;
+                    const alpha = this.opacity * intensity * (sin(angle + this.glowPhase) * 0.5 + 0.5) * 255;
+                    
+                    stroke(
+                        colors.primary.r + offset,
+                        colors.primary.g,
+                        colors.primary.b - offset,
+                        alpha
+                    );
+                    strokeWeight(frameWidth);
+                    
+                    const x1 = cos(angle) * (this.size/2 + frameWidth/2);
+                    const y1 = sin(angle) * (this.size/2 + frameWidth/2);
+                    const x2 = cos(angle + 0.2) * (this.size/2 + frameWidth/2);
+                    const y2 = sin(angle + 0.2) * (this.size/2 + frameWidth/2);
+                    
+                    line(x1, y1, x2, y2);
+                }
+            }
+            
+            drawCosmicFrame(colors, frameWidth, intensity) {
+                // Cosmic sparkle effect
+                stroke(colors.primary.r, colors.primary.g, colors.primary.b, this.opacity * intensity * 255);
+                strokeWeight(frameWidth);
+                noFill();
+                ellipse(0, 0, this.size + frameWidth);
+                
+                // Add sparkles
+                if (settings.frameAnimation) {
+                    for (let i = 0; i < 8; i++) {
+                        const angle = (millis() * 0.002 + i * 0.8) % TWO_PI;
+                        const radius = this.size/2 + frameWidth + sin(this.glowPhase + i) * 10;
+                        const sparkleX = cos(angle) * radius;
+                        const sparkleY = sin(angle) * radius;
+                        
+                        stroke(255, 255, 255, this.opacity * intensity * 200);
+                        strokeWeight(2);
+                        point(sparkleX, sparkleY);
+                    }
+                }
+            }
+            
+            drawFireFrame(colors, frameWidth, intensity) {
+                // Fire effect with flickering
+                const flicker = sin(this.glowPhase * 2) * 0.3 + 0.7;
+                const steps = 24;
+                noFill();
+                
+                for (let i = 0; i < steps; i++) {
+                    const angle = (i / steps) * TWO_PI;
+                    const flame = sin(this.glowPhase + angle * 4) * 3;
+                    const alpha = this.opacity * intensity * flicker * 255;
+                    
+                    stroke(255, colors.primary.g + flame * 10, 0, alpha);
+                    strokeWeight(frameWidth + flame);
+                    
+                    const x = cos(angle) * (this.size/2 + frameWidth/2 + flame);
+                    const y = sin(angle) * (this.size/2 + frameWidth/2 + flame);
+                    
+                    point(x, y);
+                }
+            }
+            
+            drawIceFrame(colors, frameWidth, intensity) {
+                // Ice crystal effect
+                stroke(150, 200, 255, this.opacity * intensity * 255);
+                strokeWeight(frameWidth);
+                noFill();
+                ellipse(0, 0, this.size + frameWidth);
+                
+                // Ice spikes
+                for (let i = 0; i < 6; i++) {
+                    const angle = (i / 6) * TWO_PI + this.glowPhase * 0.1;
+                    const length = frameWidth * 3;
+                    
+                    stroke(200, 230, 255, this.opacity * intensity * 150);
+                    strokeWeight(2);
+                    
+                    const x1 = cos(angle) * (this.size/2 + frameWidth);
+                    const y1 = sin(angle) * (this.size/2 + frameWidth);
+                    const x2 = cos(angle) * (this.size/2 + frameWidth + length);
+                    const y2 = sin(angle) * (this.size/2 + frameWidth + length);
+                    
+                    line(x1, y1, x2, y2);
+                }
+            }
+            
+            drawRainbowFrame(colors, frameWidth, intensity) {
+                // Rainbow effect
+                const steps = 32;
+                noFill();
+                strokeWeight(frameWidth);
+                
+                for (let i = 0; i < steps; i++) {
+                    const hue = (i / steps + this.glowPhase * 0.1) % 1;
+                    const rgb = this.hsvToRgb(hue, 1, 1);
+                    const alpha = this.opacity * intensity * 255;
+                    
+                    stroke(rgb.r, rgb.g, rgb.b, alpha);
+                    
+                    const angle1 = (i / steps) * TWO_PI;
+                    const angle2 = ((i + 1) / steps) * TWO_PI;
+                    
+                    const x1 = cos(angle1) * (this.size/2 + frameWidth/2);
+                    const y1 = sin(angle1) * (this.size/2 + frameWidth/2);
+                    const x2 = cos(angle2) * (this.size/2 + frameWidth/2);
+                    const y2 = sin(angle2) * (this.size/2 + frameWidth/2);
+                    
+                    line(x1, y1, x2, y2);
+                }
+            }
+            
+            drawElectricFrame(colors, frameWidth, intensity) {
+                // Electric arcs
+                stroke(colors.primary.r, colors.primary.g, colors.primary.b, this.opacity * intensity * 255);
+                strokeWeight(frameWidth);
+                noFill();
+                ellipse(0, 0, this.size + frameWidth);
+                
+                // Lightning arcs
+                if (settings.frameAnimation && Math.random() < 0.3) {
+                    for (let i = 0; i < 4; i++) {
+                        const angle = random(TWO_PI);
+                        const distance = random(frameWidth, frameWidth * 3);
+                        
+                        stroke(255, 255, 0, this.opacity * intensity * 200);
+                        strokeWeight(1);
+                        
+                        const x1 = cos(angle) * (this.size/2);
+                        const y1 = sin(angle) * (this.size/2);
+                        const x2 = cos(angle) * (this.size/2 + distance);
+                        const y2 = sin(angle) * (this.size/2 + distance);
+                        
+                        line(x1, y1, x2, y2);
+                    }
+                }
+            }
+            
+            hsvToRgb(h, s, v) {
+                let r, g, b;
+                const i = Math.floor(h * 6);
+                const f = h * 6 - i;
+                const p = v * (1 - s);
+                const q = v * (1 - f * s);
+                const t = v * (1 - (1 - f) * s);
+                
+                switch (i % 6) {
+                    case 0: r = v, g = t, b = p; break;
+                    case 1: r = q, g = v, b = p; break;
+                    case 2: r = p, g = v, b = t; break;
+                    case 3: r = p, g = q, b = v; break;
+                    case 4: r = t, g = p, b = v; break;
+                    case 5: r = v, g = p, b = q; break;
+                }
+                
+                return {
+                    r: Math.round(r * 255),
+                    g: Math.round(g * 255),
+                    b: Math.round(b * 255)
+                };
+            }
+        }
+        
+        function setup() {
+            createCanvas(windowWidth, windowHeight);
+            
+            // Get instance ID and settings from URL
+            parseUrlParameters();
+            
+            // Initialize settings with defaults
+            initializeSettings();
+            
+            // Load images and start
+            loadImages();
+            
+            // Apply background
+            applyBackgroundColor();
+            
+            // Auto-resize window if specified
+            if (settings.autoResize) {
+                autoResizeWindow();
+            }
+        }
+        
+        function parseUrlParameters() {
+            const urlParams = new URLSearchParams(window.location.search);
+            instanceId = urlParams.get('instance') || '1';
+            
+            // Parameter mapping
+            const paramMap = {
+                'maxImages': 'maxImages',
+                'speed': 'speed',
+                'scale': 'imageScale',
+                'blur': 'blurAmount',
+                'frame': 'frameEnabled',
+                'frameStyle': 'frameStyle',
+                'frameWidth': 'frameWidth',
+                'glow': 'glowIntensity',
+                'variation': 'frameVariation',
+                'animation': 'frameAnimation',
+                'effect': 'effectIntensity',
+                'color1': 'brandColor1',
+                'color2': 'brandColor2',
+                'colorVar': 'colorVariation',
+                'bg': 'backgroundColor',
+                'centerStart': 'centerZoneStart',
+                'centerEnd': 'centerZoneEnd',
+                'spacing': 'minSpacing',
+                'parkWait': 'parkWaitTime',
+                'parkHeight': 'parkAreaHeight',
+                'parkSpeed': 'minParkSpeed',
+                'parkOffset': 'parkZoneOffset',
+                'speedVar': 'speedVariation',
+                'sizeVar': 'sizeVariation',
+                'easing': 'easingStrength',
+                'timeVar': 'onTimeVariation',
+                'bottomGap': 'bottomOffset',
+                'topGap': 'topOffset',
+                'aspect': 'targetAspectRatio',
+                'width': 'displayWidth',
+                'height': 'displayHeight',
+                'autoResize': 'autoResize'
+            };
+            
+            // Apply URL parameters to settings
+            window.urlSettings = {};
+            for (const [urlParam, settingKey] of Object.entries(paramMap)) {
+                if (urlParams.has(urlParam)) {
+                    const value = urlParams.get(urlParam);
+                    if (settingKey === 'frameEnabled' || settingKey === 'frameVariation' || 
+                        settingKey === 'frameAnimation' || settingKey === 'autoResize') {
+                        window.urlSettings[settingKey] = value.toLowerCase() === 'true';
+                    } else if (typeof getDefaultSettings()[settingKey] === 'number') {
+                        window.urlSettings[settingKey] = parseFloat(value);
+                    } else {
+                        window.urlSettings[settingKey] = value;
+                    }
+                }
+            }
+        }
+        
+        function getDefaultSettings() {
+            return {
+                maxImages: 3,
+                speed: 2.0,
+                imageScale: 150,
+                blurAmount: 5,
+                frameEnabled: true,
+                frameStyle: 'classic',
+                frameWidth: 4,
+                glowIntensity: 50,
+                frameVariation: false,
+                frameAnimation: true,
+                effectIntensity: 100,
+                brandColor1: '#667eea',
+                brandColor2: '#764ba2',
+                colorVariation: 25,
+                backgroundColor: '#667eea',
+                centerZoneStart: 20,
+                centerZoneEnd: 80,
+                onTimeVariation: 15,
+                displayCenter: 50,
+                minSpacing: 200,
+                parkWaitTime: 2000,
+                parkAreaHeight: 100,
+                minParkSpeed: 0.1,
+                parkZoneOffset: 0,
+                speedVariation: 30,
+                sizeVariation: 8,
+                easingStrength: 2.0,
+                bottomOffset: 100,
+                topOffset: 100,
+                targetAspectRatio: '16:9',
+                displayWidth: 1920,
+                displayHeight: 1080,
+                autoResize: true,
+                imagesFolder: instanceId === '1' ? 'images' : 'images2'
+            };
+        }
+        
+        function initializeSettings() {
+            // Start with defaults
+            settings = getDefaultSettings();
+            
+            // Load from localStorage
+            const saved = localStorage.getItem(`imageShuffler_${instanceId}_settings`);
+            if (saved) {
+                try {
+                    const savedSettings = JSON.parse(saved);
+                    settings = { ...settings, ...savedSettings };
+                } catch (error) {
+                    console.error('Failed to parse saved settings:', error);
+                }
+            }
+            
+            // Apply URL parameters (highest priority)
+            if (window.urlSettings) {
+                settings = { ...settings, ...window.urlSettings };
+            }
+        }
+        
+        async function loadImages() {
+            try {
+                const url = `${window.location.origin}/api/images/${settings.imagesFolder}`;
+                // console.log('Fetching images from:', url);
+                
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const imageFiles = await response.json();
+                
+                availableImages = imageFiles.filter(file => 
+                    file.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i)
+                );
+                
+                console.log(`Loaded ${availableImages.length} images from ${settings.imagesFolder}`);
+                
+                // Start animation
+                setTimeout(spawnImage, 1000);
+            } catch (error) {
+                console.error('Failed to load images:', error);
+                availableImages = [];
+            }
+        }
+        
+        function applyBackgroundColor() {
+            // Convert hex to RGB for p5.js
+            const hex = settings.backgroundColor || '#667eea';
+            const rgb = hexToRgb(hex);
+            
+            // Store background color for draw() function
+            window.bgColor = rgb;
+        }
+        
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? {
+                r: parseInt(result[1], 16),
+                g: parseInt(result[2], 16),
+                b: parseInt(result[3], 16)
+            } : {r: 102, g: 126, b: 234};
+        }
+        
+        function autoResizeWindow() {
+            // TEMPORARY: Disable auto-resize to fix stuck images issue
+            console.log('⚠️ Auto-resize temporarily disabled to fix exit behavior');
+            return;
+            
+            if (!settings.autoResize) return;
+            
+            try {
+                const width = settings.displayWidth;
+                const height = settings.displayHeight;
+                
+                if (window.self === window.top) {
+                    const chromeHeight = 85;
+                    const chromeWidth = 16;
+                    
+                    window.resizeTo(width + chromeWidth, height + chromeHeight);
+                    
+                    // Center window
+                    const screenWidth = window.screen.availWidth;
+                    const screenHeight = window.screen.availHeight;
+                    const left = (screenWidth - width) / 2;
+                    const top = (screenHeight - height) / 2;
+                    
+                    window.moveTo(left, top);
+                    
+                    console.log(`Window auto-resized to ${width}x${height}`);
+                }
+            } catch (error) {
+                console.warn('Auto-resize failed:', error);
+            }
+        }
+        
+        function draw() {
+            // Apply background color
+            const bg = window.bgColor || {r: 102, g: 126, b: 234};
+            background(bg.r, bg.g, bg.b);
+            
+            // Removed debug logging
+            
+            // Update all images
+            // Active images status logging removed
+            
+            for (let i = activeImages.length - 1; i >= 0; i--) {
+                const img = activeImages[i];
+                const shouldRemove = !img.update();
+                
+                if (shouldRemove) {
+                    // Remove completed image
+                    activeImages.splice(i, 1);
+                }
+            }
+            
+            // Display all images
+            for (const img of activeImages) {
+                img.display();
+            }
+            
+            // On-screen debug removed for clean display
+            
+            // Optional: Show image count (remove for production)
+            // fill(255);
+            // textAlign(LEFT);
+            // textSize(16);
+            // text(`Active: ${activeImages.length}, Visible: ${getVisibleImageCount()}`, 10, 30);
+            
+            // Spawn new images
+            const visibleCount = getVisibleImageCount();
+            const now = millis();
+            const spawnInterval = 3000 / settings.speed;
+            
+            if (now - lastSpawnTime > spawnInterval && visibleCount < settings.maxImages) {
+                spawnImage();
+                lastSpawnTime = now;
+            }
+        }
+        
+        function getVisibleImageCount() {
+            return activeImages.filter(img => 
+                img.y > -img.size && img.y < height + img.size
+            ).length;
+        }
+        
+        function spawnImage() {
+            if (availableImages.length === 0) {
+                console.log('No available images to spawn');
+                return;
+            }
+            
+            // Reset used images if all have been used
+            const unusedImages = availableImages.filter(img => !usedImages.has(img));
+            let selectedImage;
+            
+            if (unusedImages.length === 0) {
+                // All images used, reset the pool
+                usedImages.clear();
+                selectedImage = random(availableImages);
+            } else {
+                selectedImage = random(unusedImages);
+            }
+            
+            usedImages.add(selectedImage);
+            
+            // Find non-colliding X position
+            const x = findNonCollidingX();
+            
+            // Create new image
+            const newImage = new FloatingImage(x, selectedImage);
+            activeImages.push(newImage);
+        }
+        
+        function findNonCollidingX() {
+            // Use maximum possible image size for collision detection
+            const maxPossibleSize = settings.imageScale * (1 + settings.sizeVariation / 100);
+            const spacing = settings.minSpacing;
+            const attempts = 20;
+            
+            for (let i = 0; i < attempts; i++) {
+                const x = random(maxPossibleSize/2, width - maxPossibleSize/2);
+                let collision = false;
+                
+                // Check collision with existing images
+                for (const img of activeImages) {
+                    // Use combined radius for better collision detection
+                    const combinedRadius = (img.size + maxPossibleSize) / 2;
+                    if (abs(img.x - x) < Math.max(spacing, combinedRadius)) {
+                        collision = true;
+                        break;
+                    }
+                }
+                
+                if (!collision) return x;
+            }
+            
+            // Fallback: return random position
+            return random(maxPossibleSize/2, width - maxPossibleSize/2);
+        }
+        
+        // Throttle window resize to prevent excessive recalculations
+        let resizeTimeout;
+        function windowResized() {
+            // Clear any pending resize operation
+            if (resizeTimeout) {
+                clearTimeout(resizeTimeout);
+            }
+            
+            // Throttle resize operations to every 100ms
+            resizeTimeout = setTimeout(() => {
+                resizeCanvas(windowWidth, windowHeight);
+                
+                // Update all active images with new window dimensions (only if significant change)
+                for (const img of activeImages) {
+                    const oldDisplayCenter = img.displayCenter;
+                    const newDisplayCenter = windowHeight * (settings.displayCenter / 100);
+                    
+                    // Only update if there's a significant change (more than 5 pixels)
+                    if (Math.abs(newDisplayCenter - oldDisplayCenter) > 5) {
+                        img.windowWidth = windowWidth;
+                        img.windowHeight = windowHeight;
+                        img.displayCenter = newDisplayCenter;
+                        img.parkZoneTop = img.displayCenter - (settings.parkAreaHeight / 2) + settings.parkZoneOffset;
+                        img.parkZoneBottom = img.displayCenter + (settings.parkAreaHeight / 2) + settings.parkZoneOffset;
+                        img.endY = -(img.circleRadius + img.safetyMargin + settings.topOffset + 100);
+                        
+                        // If image is parked, adjust its position relative to the new display center
+                        if (img.phase === 'park') {
+                            const centerDiff = newDisplayCenter - oldDisplayCenter;
+                            img.y += centerDiff;
+                            img.individualCenterY += centerDiff;
+                        }
+                    }
+                }
+            }, 100);
+        }
+        
+        function keyPressed() {
+            // Force all parked images to exit (press 'e' key)
+            if (key === 'e' || key === 'E') {
+                console.log('🔧 FORCING ALL PARKED IMAGES TO EXIT');
+                for (let img of activeImages) {
+                    if (img.phase === 'park') {
+                        img.phase = 'exit';
+                        console.log(`🔧 Forced ${img.imagePath} to exit from park`);
+                    }
+                }
+            }
+        }
+        
+        // Global object for admin panel communication
+        window.imageShuffler = {
+            updateSettings: function(newSettings) {
+                const oldSettings = { ...settings };
+                settings = { ...settings, ...newSettings };
+                
+                // Apply background color immediately if changed
+                if (newSettings.backgroundColor && newSettings.backgroundColor !== oldSettings.backgroundColor) {
+                    applyBackgroundColor();
+                }
+                
+                // Update existing images with new settings if relevant properties changed
+                const visualSettings = ['imageScale', 'frameStyle', 'frameEnabled', 'frameWidth', 'glowIntensity', 
+                                      'frameVariation', 'frameAnimation', 'effectIntensity', 'brandColor1', 'brandColor2', 
+                                      'colorVariation', 'blurAmount'];
+                
+                const visualChanged = visualSettings.some(key => newSettings[key] !== undefined && newSettings[key] !== oldSettings[key]);
+                
+                if (visualChanged) {
+                    // Update visual properties of existing images
+                    for (const img of activeImages) {
+                        if (newSettings.imageScale !== undefined) {
+                            img.size = newSettings.imageScale;
+                            img.circleRadius = newSettings.imageScale / 2;
+                        }
+                        if (newSettings.frameStyle !== undefined) {
+                            img.frameStyle = newSettings.frameStyle;
+                        }
+                        if (newSettings.frameEnabled !== undefined) {
+                            // Frame enabled/disabled change handled by settings update
+                        }
+                        if (['brandColor1', 'brandColor2', 'colorVariation'].some(key => newSettings[key] !== undefined)) {
+                            img.frameColors = img.generateFrameColors();
+                        }
+                    }
+                }
+                
+                // Update animation properties
+                const animationSettings = ['speed', 'parkWaitTime', 'parkAreaHeight', 'displayCenter', 'parkZoneOffset', 
+                                         'minParkSpeed', 'speedVariation', 'easingStrength'];
+                
+                const animationChanged = animationSettings.some(key => newSettings[key] !== undefined && newSettings[key] !== oldSettings[key]);
+                
+                if (animationChanged) {
+                    // Update animation properties of existing images
+                    for (const img of activeImages) {
+                        if (newSettings.displayCenter !== undefined) {
+                            img.displayCenter = height * (newSettings.displayCenter / 100);
+                            img.parkZoneTop = img.displayCenter - (settings.parkAreaHeight / 2) + settings.parkZoneOffset;
+                            img.parkZoneBottom = img.displayCenter + (settings.parkAreaHeight / 2) + settings.parkZoneOffset;
+                        }
+                        if (newSettings.speed !== undefined && newSettings.speedVariation !== undefined) {
+                            const baseSpeed = newSettings.speed * (0.7 + Math.random() * 0.6);
+                            img.individualSpeed = baseSpeed * (1 + (Math.random() - 0.5) * (newSettings.speedVariation / 100));
+                        }
+                    }
+                }
+                
+                // If folder changed, reload images
+                if (newSettings.imagesFolder && newSettings.imagesFolder !== oldSettings.imagesFolder) {
+                    loadImages();
+                }
+                
+                console.log('Settings updated in real-time:', newSettings);
+            },
+            
+            getSettings: function() {
+                return { ...settings };
+            },
+            
+            resetUsedImages: function() {
+                usedImages.clear();
+                console.log('Image queue reset');
+            },
+            
+            getStats: function() {
+                return {
+                    activeImages: activeImages.length,
+                    visibleImages: getVisibleImageCount(),
+                    totalImages: availableImages.length,
+                    usedImages: usedImages.size
+                };
+            },
+            
+            // Add method to refresh images
+            refreshImages: function() {
+                loadImages();
+            }
+        };
+        
+        // Update page title
+        document.title = `Floating Photos - p5.js Instance ${instanceId}`;
+    </script>
+</body>
+</html>
