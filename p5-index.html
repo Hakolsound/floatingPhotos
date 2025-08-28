@@ -279,6 +279,11 @@
                 push();
                 translate(this.x, this.y);
                 
+                // DEBUG: Log blur settings and canvas filter status
+                if (frameCount % 120 === 0) {
+                    console.log(`🐛 BLUR DEBUG: ${this.imagePath} blurAmount=${settings.blurAmount} filter=${drawingContext.filter} frameEnabled=${settings.frameEnabled}`);
+                }
+                
                 if (!this.loaded || this.loadFailed) {
                     // Show placeholder
                     this.drawPlaceholder();
@@ -291,11 +296,20 @@
                     // rotate(this.rotation * 0.1); // Disabled - don't rotate images
                 }
                 
-                // Remove debug logging
-                
-                // Draw frame effects first (behind image)
+                // First: Draw ONLY the blurred frame layer (no image)
                 if (settings.frameEnabled) {
-                    this.drawFrame();
+                    console.log(`🔍 Drawing blurred frame layer for ${this.imagePath}`);
+                    this.drawBlurredFrameLayer();
+                }
+                
+                // Second: Draw sharp image on top (completely separate layer)
+                console.log(`📸 Drawing SHARP image for ${this.imagePath}`);
+                this.drawMaskedImage();
+                
+                // Third: Draw sharp frame details on top
+                if (settings.frameEnabled) {
+                    console.log(`⭕ Drawing sharp frame layer for ${this.imagePath}`);
+                    this.drawSharpFrameLayer();
                 } else {
                     // Debug: Draw simple frame if frames are disabled
                     stroke(255, 150);
@@ -304,16 +318,15 @@
                     ellipse(0, 0, this.size + 4);
                 }
                 
-                // Draw image with circular mask (over frame)
-                this.drawMaskedImage();
-                
                 pop();
             }
             
             drawMaskedImage() {
                 push();
                 
-                // Simple clipping approach that works
+                console.log(`🖼️ DRAWING SHARP IMAGE: ${this.imagePath} - NO BLUR APPLIED`);
+                
+                // NO BLUR APPLIED TO IMAGE - KEEP SHARP!
                 drawingContext.save();
                 
                 // Create circular clip
@@ -335,13 +348,16 @@
                     drawHeight = this.size / imgAspect;
                 }
                 
-                // Draw image with opacity
+                // Draw image with opacity - COMPLETELY SHARP
                 tint(255, this.opacity * 255);
                 imageMode(CENTER);
                 image(this.img, 0, 0, drawWidth, drawHeight);
                 noTint();
                 
                 drawingContext.restore();
+                
+                console.log(`✅ SHARP IMAGE COMPLETE: ${this.imagePath}`);
+                
                 pop();
             }
             
@@ -358,13 +374,41 @@
                 text('IMG', 0, 0);
             }
             
-            drawFrame() {
-                const intensity = Math.max(0.3, (settings.effectIntensity / 100)); // Ensure minimum visibility
-                const glowIntensity = settings.glowIntensity / 100;
-                const frameWidth = Math.max(2, settings.frameWidth); // Ensure minimum width
-                const colors = this.frameColors;
+            drawBlurredFrameLayer() {
+                // Draw soft edge glow using NO canvas filters - pure stroke technique
+                if (settings.blurAmount <= 0) return; // Skip if no blur
                 
-                // Frame drawing - debug removed
+                const intensity = Math.max(0.3, (settings.effectIntensity / 100));
+                const glowIntensity = settings.glowIntensity / 100;
+                const frameWidth = Math.max(2, settings.frameWidth);
+                const colors = this.frameColors;
+                const blurAmount = settings.blurAmount;
+                
+                push();
+                
+                // NO CANVAS FILTERS - simulate blur with multiple soft strokes
+                const blurLayers = Math.ceil(blurAmount / 2) + 3; // More layers = smoother blur
+                
+                for (let i = 0; i < blurLayers; i++) {
+                    // Create blur falloff - outer layers are wider and more transparent
+                    const layerRadius = frameWidth + (i * blurAmount * 0.8);
+                    const layerAlpha = (this.opacity * intensity * glowIntensity * (80 - i * 8)) / 100;
+                    const finalAlpha = Math.max(5, layerAlpha * (1 - i * 0.15));
+                    
+                    stroke(colors.primary.r, colors.primary.g, colors.primary.b, finalAlpha);
+                    strokeWeight(layerRadius);
+                    noFill();
+                    ellipse(0, 0, this.size + frameWidth + (i * blurAmount * 0.5));
+                }
+                
+                pop();
+            }
+            
+            drawSharpFrameLayer() {
+                // Draw sharp frame details on top (no blur)
+                const intensity = Math.max(0.3, (settings.effectIntensity / 100));
+                const frameWidth = Math.max(2, settings.frameWidth);
+                const colors = this.frameColors;
                 
                 push();
                 
@@ -395,59 +439,26 @@
                         break;
                 }
                 
-                pop();
-            }
-            
-            drawClassicFrame(colors, frameWidth, intensity) {
-                const baseAlpha = Math.min(255, this.opacity * intensity * 200 + 55); // Ensure visibility
-                const glowIntensity = settings.glowIntensity / 100;
-                
-                // Draw main frame ring
+                // Draw main sharp frame ring
+                const baseAlpha = Math.min(255, this.opacity * intensity * 200 + 55);
                 stroke(colors.primary.r, colors.primary.g, colors.primary.b, baseAlpha);
                 strokeWeight(frameWidth);
                 noFill();
                 ellipse(0, 0, this.size + frameWidth);
                 
-                // Draw glow layers if enabled
-                if (glowIntensity > 0.1) {
-                    const glowLayers = Math.max(1, Math.ceil(settings.glowIntensity / 25));
-                    
-                    for (let i = 0; i < glowLayers; i++) {
-                        const layerAlpha = (baseAlpha * glowIntensity * (1 - (i * 0.4))) * 0.6;
-                        const layerWidth = frameWidth * 0.8 + (i * 1.5);
-                        
-                        stroke(colors.primary.r, colors.primary.g, colors.primary.b, Math.max(20, layerAlpha));
-                        strokeWeight(layerWidth);
-                        ellipse(0, 0, this.size + frameWidth + (i * 3));
-                    }
-                }
+                pop();
+            }
+            
+            // Legacy frame methods (not used with new layer approach)
+            // Legacy frame methods (kept for compatibility but not used)
+            drawClassicFrame(colors, frameWidth, intensity) {
+                // This method is no longer used - replaced by layered approach
+                return;
             }
             
             drawNeonFrame(colors, frameWidth, intensity) {
-                const baseAlpha = this.opacity * intensity * 180 + 75; // Brighter base
-                
-                // Animated glow intensity
-                const animatedGlow = settings.frameAnimation ? 
-                    (sin(this.glowPhase) * 0.4 + 0.8) : 1;
-                
-                // Main neon ring
-                stroke(colors.primary.r, colors.primary.g, colors.primary.b, baseAlpha * animatedGlow);
-                strokeWeight(frameWidth);
-                noFill();
-                ellipse(0, 0, this.size + frameWidth);
-                
-                // Multiple glow layers for neon effect
-                for (let i = 0; i < 4; i++) {
-                    const layerAlpha = (baseAlpha * (85 - i * 15)) / 100;
-                    const weight = frameWidth * 0.7 + i * 2;
-                    const layerGlow = settings.frameAnimation ? 
-                        (sin(this.glowPhase + i * 0.5) * 0.3 + 0.7) : 1;
-                    
-                    stroke(colors.primary.r, colors.primary.g, colors.primary.b, 
-                           Math.max(25, layerAlpha * layerGlow * animatedGlow));
-                    strokeWeight(weight);
-                    ellipse(0, 0, this.size + frameWidth + (i * 4));
-                }
+                // Legacy method - no longer used with new layer approach
+                return;
             }
             
             drawPlasmaFrame(colors, frameWidth, intensity) {
