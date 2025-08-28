@@ -24,6 +24,8 @@ A sophisticated web-based image shuffler with smooth park-and-wait animations, s
 
 ## Quick Start
 
+### Single Machine Setup
+
 1. **Install dependencies:**
    ```bash
    npm install
@@ -44,6 +46,36 @@ A sophisticated web-based image shuffler with smooth park-and-wait animations, s
    - Admin panel: http://localhost:3000/admin.html
    - Instance 1: http://localhost:3000/?instance=1
    - Instance 2: http://localhost:3000/?instance=2
+
+### LAN Setup (3 Machines: 1 Host + 2 Clients)
+
+**Host Machine Setup:**
+1. Clone and setup the project:
+   ```bash
+   git clone https://github.com/Hakolsound/floatingPhotos.git
+   cd floatingPhotos
+   npm install
+   ```
+
+2. **Prepare your images:**
+   - Create `~/images` folder and add your images
+   - Create `~/images2` folder and add images for second instance
+   - Supported formats: JPG, JPEG, PNG, GIF, WebP, BMP
+
+3. **Start the server:**
+   ```bash
+   npm start
+   ```
+   The server will display the LAN IP address and URLs for client machines.
+
+**Client Machine Setup:**
+- No installation needed on client machines
+- Just open a web browser and navigate to the URLs provided by the host server:
+  - **Client Machine 1**: Open `http://[HOST-IP]:3000/?instance=1`
+  - **Client Machine 2**: Open `http://[HOST-IP]:3000/?instance=2`
+  - **Admin Panel** (host machine): `http://[HOST-IP]:3000/admin.html`
+
+Replace `[HOST-IP]` with the actual IP address shown when you start the server.
 
 ## Admin Settings
 

@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# Images Shuf
-fler Server Startup Script
+# Images Shuffler Server Startup Script
 echo "🎨 Starting Images Shuffler Server..."
 
 # Kill any existing server processes

@@ -29,6 +29,16 @@ setInterval(async () => {
 // Serve static files
 app.use(express.static('.'));
 
+// Serve p5 version by default
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'p5-index.html'));
+});
+
+// Serve p5 admin by default
+app.get('/admin.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'p5-admin.html'));
+});
+
 // API endpoint to get images from a folder
 app.get('/api/images/:folder', async (req, res) => {
     try {
@@ -170,11 +180,31 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-app.listen(PORT, () => {
-    console.log(`🎨 Images Shuffler Server running at http://localhost:${PORT}`);
+// Get local IP address for LAN access
+function getLocalIP() {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name]) {
+            if (iface.family === 'IPv4' && !iface.internal) {
+                return iface.address;
+            }
+        }
+    }
+    return 'localhost';
+}
+
+app.listen(PORT, '0.0.0.0', () => {
+    const localIP = getLocalIP();
+    console.log(`🎨 Images Shuffler Server running on:`);
+    console.log(`   Local:    http://localhost:${PORT}`);
+    console.log(`   Network:  http://${localIP}:${PORT}`);
     console.log(`📁 Images directory: ${path.join(__dirname, 'images')}`);
     console.log(`📁 Images2 directory: ${path.join(__dirname, 'images2')}`);
-    console.log(`🎛️  Admin panel: http://localhost:${PORT}/admin.html`);
-    console.log(`🖼️  Instance 1: http://localhost:${PORT}/?instance=1`);
-    console.log(`🖼️  Instance 2: http://localhost:${PORT}/?instance=2`);
+    console.log(`🎛️  Admin panel: http://${localIP}:${PORT}/p5-admin.html`);
+    console.log(`🖼️  Instance 1: http://${localIP}:${PORT}/p5-index.html?instance=1`);
+    console.log(`🖼️  Instance 2: http://${localIP}:${PORT}/p5-index.html?instance=2`);
+    console.log(`\n📋 Setup Instructions:`);
+    console.log(`   1. Host machine: Access admin panel to configure settings`);
+    console.log(`   2. Client machine 1: Open http://${localIP}:${PORT}/p5-index.html?instance=1`);
+    console.log(`   3. Client machine 2: Open http://${localIP}:${PORT}/p5-index.html?instance=2`);
 });
